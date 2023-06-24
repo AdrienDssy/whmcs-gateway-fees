@@ -4,7 +4,7 @@ This is an open-source version of the Gateway Fees plugin for WHMCS, it will all
 
 To install this module go to your FTP server upload the **gateway_fees** folder in **/modules/addons**
 
-For configuring the fees you will need to go to Settup => Modules Addon, active and configure price (€/$ or % (percentage) per transaction)
+For configuring the fees you will need to go to Setup => Modules Addon, active and configure price (€/$ or % (percentage) per transaction)
 
 Then you will see a beautiful Gateway fee in your customer invoice
 
