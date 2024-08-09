@@ -1,121 +1,139 @@
 <?php
 
-/* 
-*
-*
-*   Created By AdKyNet SAS - Adrien Dessey (Copyright AdKyNet SAS)
-*
-*   Host : https://www.adkynet.com/en
-*
-*
-*
-*/
+use WHMCS\Database\Capsule;
 
+/**
+ *   Created By AdKyNet SAS - Adrien Dessey (Copyright AdKyNet SAS)
+ *   Host : https://www.adkynet.com/en
+ */
 
 function update_gateway_fee3($vars)
 {
-    $id = $vars['invoiceid'];
+    $id = (int)$vars['invoiceid'];
     updateInvoiceTotal($id);
 }
 
 function update_gateway_fee1($vars)
 {
-    $id = $vars['invoiceid'];
-    $result = select_query("tblinvoices", '', "id='" . $id . "'", "", "");
-    $data = mysql_fetch_array($result);
-    update_gateway_fee2(array(
-        'paymentmethod' => $data['paymentmethod'],
-        "invoiceid" => $data['id']
-    ));
+    $id = (int)$vars['invoiceid'];
+    $invoice = Capsule::table('tblinvoices')->where('id', $id)->first();
+    
+    if ($invoice) {
+        update_gateway_fee2(array(
+            'paymentmethod' => $invoice->paymentmethod,
+            'invoiceid' => $invoice->id
+        ));
+    }
 }
 
 function update_gateway_fee2($vars)
 {
-    $invoice = mysql_fetch_row(mysql_query("SELECT `userid` FROM `tblinvoices` WHERE `id`='" . $vars['invoiceid'] . "'"));
-    $user = mysql_fetch_row(mysql_query("SELECT `currency` FROM `tblclients` WHERE `id`='" . $invoice[0] . "'"));
-    $currency = mysql_fetch_row(mysql_query("SELECT `code` FROM `tblcurrencies` WHERE `id`='" . $user[0] . "'"));
-    $paymentmethod = $vars['paymentmethod'];
+    $invoiceId = (int)$vars['invoiceid'];
+    $paymentMethod = $vars['paymentmethod'];
 
-    delete_query("tblinvoiceitems", "invoiceid='" . $vars["invoiceid"] . "' and notes='gateway_fees'");
+    $invoice = Capsule::table('tblinvoices')->where('id', $invoiceId)->value('userid');
+    $currency = Capsule::table('tblclients')
+        ->where('id', $invoice)
+        ->value('currency');
 
-    $result = select_query("tbladdonmodules", "setting,value", "setting='fee_2_" . $vars['paymentmethod'] . '_' . $currency[0] . "' or setting='fee_1_" . $vars['paymentmethod'] . '_' . $currency[0] . "'");
-    while ($data = mysql_fetch_array($result)) {
-        $params[$data['setting']] = $data['value'];
-    }
+    $currencyCode = Capsule::table('tblcurrencies')
+        ->where('id', $currency)
+        ->value('code');
 
-    $fee1 = ($params['fee_1_' . $paymentmethod . '_' . $currency[0]]);
-    $fee2 = ($params['fee_2_' . $paymentmethod . '_' . $currency[0]]);
+    Capsule::table('tblinvoiceitems')
+        ->where('invoiceid', $invoiceId)
+        ->where('notes', 'gateway_fees')
+        ->delete();
 
-    $total = InvoiceTotal($vars['invoiceid']);
+    $params = Capsule::table('tbladdonmodules')
+        ->whereIn('setting', [
+            'fee_2_' . $paymentMethod . '_' . $currencyCode,
+            'fee_1_' . $paymentMethod . '_' . $currencyCode
+        ])
+        ->pluck('value', 'setting')
+        ->toArray();
+
+    $fee1 = isset($params['fee_1_' . $paymentMethod . '_' . $currencyCode]) ? (float)$params['fee_1_' . $paymentMethod . '_' . $currencyCode] : 0;
+    $fee2 = isset($params['fee_2_' . $paymentMethod . '_' . $currencyCode]) ? (float)$params['fee_2_' . $paymentMethod . '_' . $currencyCode] : 0;
+
+    $total = InvoiceTotal($invoiceId);
+    $amountdue = 0;
+    $description = '';
+
     if ($total > 0) {
         $amountdue = $fee1 + $total * $fee2 / 100;
-        if ($fee1 > 0 & $fee2 > 0) {
-            $d = $fee1 . '+' . $fee2 . "%";
-        }
-        elseif ($fee2 > 0) {
-            $d = $fee2 . "%";
-        }
-        elseif ($fee1 > 0) {
-            $d = $fee1;
+
+        if ($fee1 > 0 && $fee2 > 0) {
+            $description = $fee1 . '+' . $fee2 . '%';
+        } elseif ($fee2 > 0) {
+            $description = $fee2 . '%';
+        } elseif ($fee1 > 0) {
+            $description = $fee1;
         }
     }
 
-    if ($d) {
-        insert_query("tblinvoiceitems", array(
+    if ($description) {
+        Capsule::table('tblinvoiceitems')->insert(array(
             "userid" => $_SESSION['uid'],
-            "invoiceid" => $vars['invoiceid'],
+            "invoiceid" => $invoiceId,
             "type" => "Fee",
             "notes" => "gateway_fees",
-            "description" => getGatewayName2($vars['paymentmethod']) . " Gateway Fee ($d) " . $currency[0],
+            "description" => getGatewayName2($paymentMethod) . " Gateway Fee ($description) " . $currencyCode,
             "amount" => $amountdue,
-            "taxed" => "0", //diego
-            "duedate" => "now()",
-            "paymentmethod" => $vars['paymentmethod']
+            "taxed" => "0",
+            "duedate" => Capsule::raw("NOW()"),
+            "paymentmethod" => $paymentMethod
         ));
     }
 
-    updateInvoiceTotal($vars["invoiceid"]);
+    updateInvoiceTotal($invoiceId);
 }
 
 function InvoiceTotal($id)
 {
     global $CONFIG;
-    $result = select_query("tblinvoiceitems", "", array(
-        "invoiceid" => $id
-    ));
-    while ($data = mysql_fetch_array($result)) {
-        if ($data['taxed'] == "1") {
-            $taxsubtotal+= $data['amount'];
-        }
-        else {
-            $nontaxsubtotal+= $data['amount'];
+
+    $nontaxsubtotal = 0;
+    $taxsubtotal = 0;
+
+    $items = Capsule::table('tblinvoiceitems')
+        ->where('invoiceid', $id)
+        ->get();
+
+    foreach ($items as $item) {
+        if ($item->taxed == "1") {
+            $taxsubtotal += $item->amount;
+        } else {
+            $nontaxsubtotal += $item->amount;
         }
     }
 
-    $subtotal = $total = $nontaxsubtotal + $taxsubtotal;
-    $result = select_query("tblinvoices", "userid,credit,taxrate,taxrate2", array(
-        "id" => $id
-    ));
-    $data = mysql_fetch_array($result);
-    $userid = $data['userid'];
-    $credit = $data['credit'];
-    $taxrate = $data['taxrate'];
-    $taxrate2 = $data['taxrate2'];
-    if (!function_exists("getClientsDetails")) {
-        require_once (dirname(__FILE__) . "/clientfunctions.php");
+    $subtotal = $nontaxsubtotal + $taxsubtotal;
 
+    $invoice = Capsule::table('tblinvoices')
+        ->where('id', $id)
+        ->first();
+
+    $userid = $invoice->userid;
+    $credit = $invoice->credit;
+    $taxrate = $invoice->taxrate;
+    $taxrate2 = $invoice->taxrate2;
+
+    if (!function_exists("getClientsDetails")) {
+        require_once dirname(__FILE__) . "/clientfunctions.php";
     }
 
     $clientsdetails = getClientsDetails($userid);
-    $tax = $tax2 = 0;
+    $tax = 0;
+    $tax2 = 0;
+
     if ($CONFIG['TaxEnabled'] == "on" && !$clientsdetails['taxexempt']) {
         if ($taxrate != "0.00") {
             if ($CONFIG['TaxType'] == "Inclusive") {
                 $taxrate = $taxrate / 100 + 1;
                 $calc1 = $taxsubtotal / $taxrate;
                 $tax = $taxsubtotal - $calc1;
-            }
-            else {
+            } else {
                 $taxrate = $taxrate / 100;
                 $tax = $taxsubtotal * $taxrate;
             }
@@ -123,15 +141,14 @@ function InvoiceTotal($id)
 
         if ($taxrate2 != "0.00") {
             if ($CONFIG['TaxL2Compound']) {
-                $taxsubtotal+= $tax;
+                $taxsubtotal += $tax;
             }
 
             if ($CONFIG['TaxType'] == "Inclusive") {
                 $taxrate2 = $taxrate2 / 100 + 1;
                 $calc1 = $taxsubtotal / $taxrate2;
                 $tax2 = $taxsubtotal - $calc1;
-            }
-            else {
+            } else {
                 $taxrate2 = $taxrate2 / 100;
                 $tax2 = $taxsubtotal * $taxrate2;
             }
@@ -143,35 +160,28 @@ function InvoiceTotal($id)
 
     if ($CONFIG['TaxType'] == "Inclusive") {
         $subtotal = $subtotal - $tax - $tax2;
-    }
-    else {
+    } else {
         $total = $subtotal + $tax + $tax2;
     }
 
-    if (0 < $credit) {
+    if ($credit > 0) {
         if ($total < $credit) {
             $total = 0;
             $remainingcredit = $total - $credit;
-        }
-        else {
-            $total-= $credit;
+        } else {
+            $total -= $credit;
         }
     }
 
-    $subtotal = format_as_currency($subtotal);
-    $tax = format_as_currency($tax);
-    $total = format_as_currency($total);
-    return $total;
+    return format_as_currency($total);
 }
 
 function getGatewayName2($modulename)
 {
-    $result = select_query("tblpaymentgateways", "value", array(
-        "gateway" => $modulename,
-        "setting" => "name"
-    ));
-    $data = mysql_fetch_array($result);
-    return $data["value"];
+    return Capsule::table('tblpaymentgateways')
+        ->where('gateway', $modulename)
+        ->where('setting', 'name')
+        ->value('value');
 }
 
 add_hook("InvoiceChangeGateway", 1, "update_gateway_fee2");
@@ -180,5 +190,3 @@ add_hook("AdminInvoicesControlsOutput", 2, "update_gateway_fee3");
 add_hook("AdminInvoicesControlsOutput", 1, "update_gateway_fee1");
 add_hook("InvoiceCreationAdminArea", 1, "update_gateway_fee1");
 add_hook("InvoiceCreationAdminArea", 2, "update_gateway_fee3");
-
-?>
