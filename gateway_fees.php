@@ -10,7 +10,7 @@ function gateway_fees_config()
     $configarray = array(
         "name" => "Gateway fees",
         "description" => "This addon allows to charge your customer a fee about the payment gateway.",
-        "version" => "1.2",
+        "version" => "1.4",
         "author" => "AdKyNet SAS",
         "fields" => array(
             "enable_logs" => array(
@@ -23,6 +23,12 @@ function gateway_fees_config()
                 "FriendlyName" => "Delete Table on Deactivation",
                 "Type" => "yesno",
                 "Description" => "Choose to delete the module's SQL table when the module is deactivated.",
+                "Default" => "No"
+            ),
+            "tax_gateway_fees" => array(
+                "FriendlyName" => "Add tax on the fees",
+                "Type" => "yesno",
+                "Description" => "Enable or disable the tax option for the gateway fees.",
                 "Default" => "No"
             ),
         )
