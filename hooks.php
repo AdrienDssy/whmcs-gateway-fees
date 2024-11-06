@@ -32,6 +32,7 @@ function update_gateway_fee2($vars)
 
     $currency = Capsule::table('tblclients')->where('id', $invoice->userid)->value('currency');
     $currencyCode = Capsule::table('tblcurrencies')->where('id', $currency)->value('code');
+    $currencysuffix = Capsule::table('tblcurrencies')->where('id', $currency)->value('suffix');
 
     Capsule::table('tblinvoiceitems')
         ->where('invoiceid', $invoiceId)
@@ -50,23 +51,28 @@ function update_gateway_fee2($vars)
     $fee1 = isset($params['fee_1_' . $paymentMethod . '_' . $currencyCode]) ? (float)$params['fee_1_' . $paymentMethod . '_' . $currencyCode] : 0;
     $fee2 = isset($params['fee_2_' . $paymentMethod . '_' . $currencyCode]) ? (float)$params['fee_2_' . $paymentMethod . '_' . $currencyCode] : 0;
 
-    $totalFee = $fee1 + ($fee2 / 100) * $invoice->subtotal;
+    $totalFee = $fee1 + ($invoice->total * $fee2 / 100);
 
-    Capsule::table('tblinvoiceitems')->insert([
-        'invoiceid' => $invoiceId,
-        'type' => 'Item',
-        'description' => 'Gateway Fee',
-        'amount' => $totalFee,
-        'taxed' => 0,
-        'notes' => 'gateway_fees'
-    ]);
-    log_to_file("DB Insert: tblinvoiceitems with totalFee=" . $totalFee);
+    // Shows only the gateway fees when needed in the invoice
+    if($fee1 > 0.00 || $fee2 > 0.00) {
+        Capsule::table('tblinvoiceitems')->insert([
+            'invoiceid' => $invoiceId,
+            'type' => 'Item',
+            'description' => "Gateway Fee ({$fee2}% / {$fee1}{$currencysuffix})",
+            'amount' => $totalFee,
+            'taxed' => 1, // Edit to 0 if you don't want to make the amount excluding tax
+            'notes' => 'gateway_fees'
+        ]);
+        log_to_file("DB Insert: tblinvoiceitems with totalFee=" . $totalFee);
+    } 
+
+    updateInvoiceTotal($vars['invoiceid']);
 }
 
 function update_gateway_fee3($vars)
 {
     log_to_file("update_gateway_fee3 called");
-    // Exemple de traitement si nécessaire
+    // Example of treatment if necessary
 }
 
 add_hook("InvoiceChangeGateway", 1, "update_gateway_fee2");
