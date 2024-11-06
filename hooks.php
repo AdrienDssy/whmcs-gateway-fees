@@ -51,8 +51,9 @@ function update_gateway_fee2($vars)
 
     $fee1 = isset($params['fee_1_' . $paymentMethod . '_' . $currencyCode]) ? (float)$params['fee_1_' . $paymentMethod . '_' . $currencyCode] : 0;
     $fee2 = isset($params['fee_2_' . $paymentMethod . '_' . $currencyCode]) ? (float)$params['fee_2_' . $paymentMethod . '_' . $currencyCode] : 0;
-
-    $totalFee = $fee1 + ($invoice->total * $fee2 / 100);
+    $service_baseprice = Capsule::table('tblinvoiceitems')->where('invoiceid', $invoiceId)->value('amount');
+    
+    $totalFee = $fee1 + ($service_baseprice * $fee2 / 100);
 
     // Shows only the gateway fees when needed in the invoice
     if($fee1 > 0.00 || $fee2 > 0.00) {
@@ -65,7 +66,7 @@ function update_gateway_fee2($vars)
             'notes' => 'gateway_fees'
         ]);
         log_to_file("DB Insert: tblinvoiceitems with totalFee=" . $totalFee);
-    } 
+    }
 
     updateInvoiceTotal($vars['invoiceid']);
 }
