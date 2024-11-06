@@ -8,9 +8,9 @@ if (!defined("WHMCS")) die("This file cannot be accessed directly");
 function gateway_fees_config()
 {
     $configarray = array(
-        "name" => "Gatewayfees",
-        "description" => "Gateway fees",
-        "version" => "1.0",
+        "name" => "Gateway fees",
+        "description" => "This addon allows to charge your customer a fee about the payment gateway.",
+        "version" => "1.2",
         "author" => "AdKyNet SAS",
         "fields" => array(
             "enable_logs" => array(

@@ -31,6 +31,7 @@ function update_gateway_fee2($vars)
     }
 
     $currency = Capsule::table('tblclients')->where('id', $invoice->userid)->value('currency');
+    $taxGatewayFees = Capsule::table('tbladdonmodules')->where('module', 'gateway_fees')->where('setting', 'tax_gateway_fees')->value('value');
     $currencyCode = Capsule::table('tblcurrencies')->where('id', $currency)->value('code');
     $currencysuffix = Capsule::table('tblcurrencies')->where('id', $currency)->value('suffix');
 
@@ -60,7 +61,7 @@ function update_gateway_fee2($vars)
             'type' => 'Item',
             'description' => "Gateway Fee ({$fee2}% / {$fee1}{$currencysuffix})",
             'amount' => $totalFee,
-            'taxed' => 1, // Edit to 0 if you don't want to make the amount excluding tax
+            'taxed' => $taxGatewayFees?1:0, // Edit to 0 if you don't want to make the amount excluding tax
             'notes' => 'gateway_fees'
         ]);
         log_to_file("DB Insert: tblinvoiceitems with totalFee=" . $totalFee);
