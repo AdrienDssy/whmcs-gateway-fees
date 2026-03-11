@@ -29,7 +29,8 @@ function update_gateway_fee2($vars)
         ->where('level', 2)
         ->exists();
 
-    if ($tax1Exists || $tax2Exists) return; // If there are tax rules defined, we should not override the tax calculation here
+    log_to_file("Tax Check: tax1Exists=" . ($tax1Exists ? 'true' : 'false') . ", tax2Exists=" . ($tax2Exists ? 'true' : 'false'));
+    if ($tax1Exists && $tax2Exists) return; // If there are tax rules defined, we should not override the tax calculation here
 
     log_to_file("update_gateway_fee2 called with invoiceid: " . $vars['invoiceid'] . " and paymentmethod: " . $vars['paymentmethod']);
     $invoiceId = (int)$vars['invoiceid'];
@@ -94,33 +95,33 @@ function update_gateway_fee2($vars)
     $newTotal = 0;
 
     if ($isTaxInclusive) {
-        $newTotal = $newTotalItems;
+        $newTotal = round($newTotalItems, 2);
         $newTax = 0;
 
-        if ($tax_rate > 0) {
-            $taxedItemsSum = Capsule::table('tblinvoiceitems')
-                ->where('invoiceid', $invoiceId)
-                ->where('taxed', 1)
-                ->sum('amount');
+        $taxedItemsSum = Capsule::table('tblinvoiceitems')
+            ->where('invoiceid', $invoiceId)
+            ->where('taxed', 1)
+            ->sum('amount');
 
+        if ($tax_rate > 0) {
             $taxFactor = 1 + ($tax_rate / 100);
-            $newTax = $taxedItemsSum - ($taxedItemsSum / $taxFactor);
+            $newTax = round($taxedItemsSum - ($taxedItemsSum / $taxFactor), 2);
         }
 
-        $newSubtotal = $newTotal - $newTax;
+        $newSubtotal = round($newTotal - $newTax, 2);
     } else {
         // In Exclusive mode, the sum of item amounts is the Subtotal
-        $newSubtotal = $newTotalItems;
+        $newSubtotal = round($newTotalItems, 2);
 
         if ($tax_rate > 0) {
-            $taxedItemsSubtotal = Capsule::table('tblinvoiceitems')
+            $taxedItemsAmount = Capsule::table('tblinvoiceitems')
                 ->where('invoiceid', $invoiceId)
                 ->where('taxed', 1)
                 ->sum('amount');
 
-            $newTax = $taxedItemsSubtotal * ($tax_rate / 100);
+            $newTax = round($taxedItemsAmount * ($tax_rate / 100), 2);
         }
-        $newTotal = $newSubtotal + $newTax;
+        $newTotal = round($newSubtotal + $newTax, 2);
     }
 
     // Check if an update is actually needed to avoid redundant DB writes
