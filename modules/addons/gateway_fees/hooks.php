@@ -21,6 +21,16 @@ function update_gateway_fee1($vars)
 
 function update_gateway_fee2($vars)
 {
+    $tax1Exists = Capsule::table('tbltax')
+        ->where('level', 1)
+        ->exists();
+
+    $tax2Exists = Capsule::table('tbltax')
+        ->where('level', 2)
+        ->exists();
+
+    if ($tax1Exists || $tax2Exists) return; // If there are tax rules defined, we should not override the tax calculation here
+
     log_to_file("update_gateway_fee2 called with invoiceid: " . $vars['invoiceid'] . " and paymentmethod: " . $vars['paymentmethod']);
     $invoiceId = (int)$vars['invoiceid'];
     $paymentMethod = $vars['paymentmethod'];
@@ -64,7 +74,7 @@ function update_gateway_fee2($vars)
 
     // Shows only the gateway fees when needed in the invoice
     if ($fee1 > 0.00 || $fee2 > 0.00) {
-        Capsule::table('tblinvoiceitems')->insertOrUpdate([
+        Capsule::table('tblinvoiceitems')->updateOrInsert([
             'invoiceid' => $invoiceId,
             'type' => 'Item',
             'description' => "Gateway Fee ({$fee2}% / {$fee1}{$currencysuffix})",
@@ -86,7 +96,7 @@ function update_gateway_fee2($vars)
     if ($isTaxInclusive) {
         $newTotal = $newTotalItems;
         $newTax = 0;
-        
+
         if ($tax_rate > 0) {
             $taxedItemsSum = Capsule::table('tblinvoiceitems')
                 ->where('invoiceid', $invoiceId)
@@ -96,34 +106,42 @@ function update_gateway_fee2($vars)
             $taxFactor = 1 + ($tax_rate / 100);
             $newTax = $taxedItemsSum - ($taxedItemsSum / $taxFactor);
         }
-        
+
         $newSubtotal = $newTotal - $newTax;
     } else {
         // In Exclusive mode, the sum of item amounts is the Subtotal
         $newSubtotal = $newTotalItems;
-        
+
         if ($tax_rate > 0) {
             $taxedItemsSubtotal = Capsule::table('tblinvoiceitems')
                 ->where('invoiceid', $invoiceId)
                 ->where('taxed', 1)
                 ->sum('amount');
-            
+
             $newTax = $taxedItemsSubtotal * ($tax_rate / 100);
         }
         $newTotal = $newSubtotal + $newTax;
     }
 
     // Check if an update is actually needed to avoid redundant DB writes
-    $updateRequired = abs($invoice->subtotal - $newSubtotal) > 0.005 || 
-                      abs($invoice->tax - $newTax) > 0.005 || 
-                      abs($invoice->total - $newTotal) > 0.005;
+    $updateRequired = abs($invoice->subtotal - $newSubtotal) > 0.005 ||
+        abs($invoice->tax - $newTax) > 0.005 ||
+        abs($invoice->total - $newTotal) > 0.005;
 
     if ($updateRequired) {
-        Capsule::table('tblinvoices')->where('id', $invoiceId)->update([
-            'subtotal' => $newSubtotal,
-            'tax' => $newTax,
-            'total' => $newTotal
-        ]);
+        if(!$tax1Exists){
+            Capsule::table('tblinvoices')->where('id', $invoiceId)->update([
+                'subtotal' => $newSubtotal,
+                'tax' => $newTax,
+                'total' => $newTotal
+            ]);
+        } else if(!$tax2Exists){
+            Capsule::table('tblinvoices')->where('id', $invoiceId)->update([
+                'subtotal' => $newSubtotal,
+                'tax2' => $newTax,
+                'total' => $newTotal
+            ]);
+        }
         log_to_file("DB Update: tblinvoices updated. Subtotal: $newSubtotal, Tax: $newTax, Total: $newTotal");
     } else {
         log_to_file("DB Update Skipped: Totals match existing invoice.");
